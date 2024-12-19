@@ -6,61 +6,76 @@ import corner
 from tqdm import tqdm
 
 class BayesianSINDy:
-    def __init__(self, n_params=4, n_walkers=32, b=0.01):
+    def __init__(self, n_params=8, n_walkers=32, b=0.01):
         self.n_params = n_params
         self.n_walkers = n_walkers
         self.samples = None
-        self.feature_names = ['Constant', 'Stiffness', 'Damping', 'Sigma_epsilon']
-        self.b = b  # Sparsity parameter
+        self.b = b  # Default value for sparsity parameter
+
+        self.feature_names = ['Constant: Mean Force', 'x: Stiffness K', 'v: Damping C', 'x^2', 'v^2', 'xv', 'Sigma_epsilon', 'Sigma_v']
 
     def log_prior(self, theta):
         """
-        Priors for the parameters.
+        Priors for the parameters with adjustable sparsity via the Laplace scale parameter b.
         """
-        theta_0, K, C, sigma_epsilon = theta
-
-        # Physical constraints
-        if not (0 < K < 5.0 and 0 < C < 1.0 and sigma_epsilon > 0):
+        # Unpack parameters
+        theta_0, K, C, alpha_x2, alpha_v2, alpha_xv, sigma_epsilon, sigma_v = theta
+    
+        # Physical constraints: Ensure parameters are within valid ranges
+        if not (0 < K < 5.0 and 0 < C < 1.0 and sigma_epsilon > 0 and sigma_v > 0):
             return -np.inf  # Outside physical bounds
-
+    
         # Initialize the log-prior
         log_prior = 0
-
-        # Laplace prior for sparsity (K, C)
-        for param in [K, C]:
+    
+        # Laplace prior for sparsity (K, C, alpha_x2, alpha_v2, alpha_xv)
+        for param in [K, C, alpha_x2, alpha_v2, alpha_xv]:
             log_prior += -np.log(2 * self.b) - np.abs(param) / self.b
-
+    
         # Gaussian prior for theta_0 (mean force)
         mu_theta0 = 0.0
         sigma_theta0 = 1.0
-        log_prior += -0.5 * ((theta_0 - mu_theta0) / sigma_theta0)**2 - np.log(sigma_theta0 * np.sqrt(2 * np.pi))
-
-        # Prior for sigma_epsilon (process noise)
-        scale_sigma_epsilon = 1.0
-        log_prior += -np.log(np.pi * scale_sigma_epsilon * (1 + (sigma_epsilon / scale_sigma_epsilon)**2))
-
+        log_prior += -0.5 * ((theta_0 - mu_theta0) / sigma_theta0) ** 2 - np.log(sigma_theta0 * np.sqrt(2 * np.pi))
+    
+        # Half-Cauchy prior for sigma_epsilon (process noise)
+        scale_sigma_epsilon = 1
+        log_prior += -np.log(np.pi * scale_sigma_epsilon * (1 + (sigma_epsilon / scale_sigma_epsilon) ** 2))
+    
+        # Half-Cauchy prior for sigma_v (measurement noise)
+        scale_sigma_v = 0.1
+        log_prior += -np.log(np.pi * scale_sigma_v * (1 + (sigma_v / scale_sigma_v) ** 2))
+    
         return log_prior
+
+
 
     def log_likelihood(self, theta, X, X_dot):
         """
         Likelihood function accounting for unobserved process noise.
         """
         try:
-            theta_0, K, C, sigma_epsilon = theta
+            theta_0, K, C, alpha_x2, alpha_v2, alpha_xv, sigma_epsilon, sigma_v = theta
 
             # Predicted derivatives from the model
             x_dot_pred = X[:, 1]  # dx/dt = v
-            v_dot_pred = theta_0 - K * X[:, 0] - C * X[:, 1]
 
-            # Measurement noise standard deviations (set to near zero)
-            sigma_x = 1e-8  # Position derivative noise treated as exact
+            # Include additional terms in the model
+            v_dot_pred = (theta_0
+                          - K * X[:, 0]
+                          - C * X[:, 1]
+                          - alpha_x2 * X[:, 0] ** 2
+                          - alpha_v2 * X[:, 1] ** 2
+                          - alpha_xv * X[:, 0] * X[:, 1])
 
-            # Total variance for dv/dt (only process noise)
-            sigma_total_v = sigma_epsilon
+            # Measurement noise standard deviations
+            sigma_x = 0.05  # Position derivative noise
+
+            # Total variance for dv/dt (measurement noise + process noise)
+            sigma_total_v = np.sqrt(sigma_v ** 2 + sigma_epsilon ** 2)
 
             # Compute log-likelihood for position and velocity derivatives
-            log_like_x = -0.5 * np.sum(((X_dot[:, 0] - x_dot_pred) / sigma_x)**2 + np.log(2 * np.pi * sigma_x**2))
-            log_like_v = -0.5 * np.sum(((X_dot[:, 1] - v_dot_pred) / sigma_total_v)**2 + np.log(2 * np.pi * sigma_total_v**2))
+            log_like_x = -0.5 * np.sum(((X_dot[:, 0] - x_dot_pred) / sigma_x) ** 2 + np.log(2 * np.pi * sigma_x ** 2))
+            log_like_v = -0.5 * np.sum(((X_dot[:, 1] - v_dot_pred) / sigma_total_v) ** 2 + np.log(2 * np.pi * sigma_total_v ** 2))
 
             return log_like_x + log_like_v
 
@@ -78,16 +93,18 @@ class BayesianSINDy:
         """
         Perform MCMC sampling.
         """
-        # Initial guess
-        initial_guess = np.array([0.0, 1.0, 0.1, 0.5])  # [theta_0, K, C, sigma_epsilon]
+        # Initial guess for parameters
+        # initial_guess = np.array([0.5, 1.0, 0.3, 0.0, 0.0, 0.0, 0.1, 0.1])
+        initial_guess = np.array([0.2, 0.3, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         # Initialize walkers around the initial guess
-        pos = initial_guess + 0.1 * np.random.randn(self.n_walkers, self.n_params)
+        pos = initial_guess + 0.2 * np.random.randn(self.n_walkers, self.n_params)
 
         # Ensure parameters are within bounds
         pos[:, 1] = np.abs(pos[:, 1])  # Stiffness K (positive)
         pos[:, 2] = np.abs(pos[:, 2])  # Damping C (positive)
-        pos[:, 3] = np.abs(pos[:, 3])  # sigma_epsilon (positive)
+        pos[:, 6] = np.abs(pos[:, 6])  # sigma_epsilon (positive)
+        pos[:, 7] = np.abs(pos[:, 7])  # sigma_v (positive)
 
         # Initialize and run the sampler
         sampler = emcee.EnsembleSampler(
@@ -97,7 +114,7 @@ class BayesianSINDy:
 
         print("Running MCMC...")
         # Burn-in phase
-        state = sampler.run_mcmc(pos, 2000, progress=True)
+        state = sampler.run_mcmc(pos, 1000, progress=True)
         sampler.reset()
         # Sampling phase
         sampler.run_mcmc(state, n_steps, progress=True)
@@ -116,22 +133,29 @@ class BayesianSINDy:
         theta_samples = self.samples[idx]
 
         for theta in tqdm(theta_samples, desc="Generating predictions"):
-            theta_0, K, C, sigma_epsilon = theta
+            theta_0, K, C, alpha_x2, alpha_v2, alpha_xv, sigma_epsilon, _ = theta
             X_pred = np.zeros((len(t), 2))
             X_pred[0] = x0
 
             # Generate new noise sequence for each prediction
+            np.random.seed()  # Ensure randomness
             noise_force = np.random.normal(0, sigma_epsilon, size=len(t))
 
-            for i in range(len(t)-1):
+            for i in range(len(t) - 1):
                 def system(state, t_val):
                     x, v = state
                     dx = v
-                    dv = theta_0 - K * x - C * v + noise_force[i]
+                    dv = (theta_0
+                          - K * x
+                          - C * v
+                          - alpha_x2 * x ** 2
+                          - alpha_v2 * v ** 2
+                          - alpha_xv * x * v
+                          + noise_force[i])
                     return [dx, dv]
 
-                sol = odeint(system, X_pred[i], [t[i], t[i+1]])
-                X_pred[i+1] = sol[-1]
+                sol = odeint(system, X_pred[i], [t[i], t[i + 1]])
+                X_pred[i + 1] = sol[-1]
 
             predictions.append(X_pred)
 
@@ -205,7 +229,7 @@ def print_parameter_comparison(true_values, model, param_names):
 def structural_dynamics(state, t, noise_force):
     M = 1.0  # Mass
     K = 1.0  # Stiffness
-    C = 0.1  # Damping
+    C = 0.5  # Damping
 
     x, v = state
     acceleration = (-K * x - C * v + noise_force) / M
@@ -222,11 +246,11 @@ if __name__ == "__main__":
     # True model parameters
     true_mass = 1.0
     true_stiffness = 1.0  # K
-    true_damping = 0.1    # C
-    mean_noise = 0.5      # Mean of Gaussian noise (no measurement noise)
-    std_noise = 0.2       # Standard deviation of Gaussian noise (process noise)
+    true_damping = 0.5    # C
+    mean_noise = 0.5      # Mean of Gaussian noise
+    std_noise = 0.05       # Standard deviation of Gaussian noise
 
-    # Generate Gaussian stochastic forcing (process noise only)
+    # Generate Gaussian stochastic forcing
     noise_force = np.random.normal(mean_noise, std_noise, size=len(t))
 
     # Generate training data
@@ -238,12 +262,23 @@ if __name__ == "__main__":
         sol = odeint(structural_dynamics, X[i], [t[i], t[i + 1]], args=(noise_force[i],))
         X[i + 1] = sol[-1]
 
-    # Compute derivatives using finite differences
+
+    # --------
+    from scipy.signal import savgol_filter
+    
+    # Apply Savitzky-Golay filter to smooth position and velocity
+    window_length = 11  # Choose an odd integer > polynomial order
+    polyorder = 3
+    
+    X = savgol_filter(X, window_length=window_length, polyorder=polyorder, axis=0)
+    # ------
+
+    # Calculate derivatives using finite differences
     X_dot = np.gradient(X, dt, axis=0)
 
-    # Fit Bayesian SINDy model (no measurement noise)
-    model = BayesianSINDy(n_params=4, b=0.01)
-    model.fit(X, X_dot, n_steps=5000)
+    # Fit Bayesian SINDy model
+    model = BayesianSINDy(n_params=8, n_walkers=32, b=0.01)
+    model.fit(X, X_dot, n_steps=2000)
 
     # Generate predictions with uncertainty for training data
     predictions = model.predict(x0, t)
@@ -255,8 +290,7 @@ if __name__ == "__main__":
     plot_parameter_distributions(model, model.feature_names)
 
     # Compute true coefficients
-    # Only four parameters: [theta_0, K, C, sigma_epsilon]
-    true_coeffs = [mean_noise, true_stiffness / true_mass, true_damping / true_mass, std_noise]
+    true_coeffs = [mean_noise, true_stiffness / true_mass, true_damping / true_mass, 0, 0, 0, 0, 0]  # Includes placeholders for unused coefficients
 
     # Print parameter comparison
     print_parameter_comparison(true_coeffs, model, model.feature_names)
@@ -271,9 +305,6 @@ if __name__ == "__main__":
         sol = odeint(structural_dynamics, X_new[i], [t[i], t[i + 1]], args=(noise_force[i],))
         X_new[i + 1] = sol[-1]
 
-    # Compute derivatives for new initial conditions
-    X_new_dot = np.gradient(X_new, dt, axis=0)
-
     # Predict for new initial conditions
     predictions_new = model.predict(new_x0, t)
 
@@ -281,9 +312,11 @@ if __name__ == "__main__":
     plot_true_vs_predicted(t, X_new, predictions_new)
 
     # Compute RMSE for robustness evaluation
-    rmse_x = np.sqrt(np.mean((X_new[:, 0] - np.mean(predictions_new[:, :, 0], axis=0)) ** 2))
-    rmse_v = np.sqrt(np.mean((X_new[:, 1] - np.mean(predictions_new[:, :, 1], axis=0)) ** 2))
+    rmse_x = np.sqrt(np.mean((X_new[:, 0] - np.mean(predictions_new[:, :, 0], axis=0))**2))
+    rmse_v = np.sqrt(np.mean((X_new[:, 1] - np.mean(predictions_new[:, :, 1], axis=0))**2))
 
     print("\n### RMSE for New Initial Conditions ###")
     print(f"x RMSE: {rmse_x:.5f}")
     print(f"v RMSE: {rmse_v:.5f}")
+        
+    

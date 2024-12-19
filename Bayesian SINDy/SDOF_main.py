@@ -294,7 +294,7 @@ if __name__ == "__main__":
     # ------------------------------
     # 7.5. Fit Bayesian SINDy Model
     # ------------------------------
-    model = BayesianSINDy(n_walkers=32, b=0.1)
+    model = BayesianSINDy(n_walkers=320, b=0.01)
     model.fit(X, X_dot, U=u, n_steps=1000)
 
     # ------------------------------
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 
 
     # ------------------------------
-    # 7.8. Simulate the Uncontrolled System (u = 0) for All Initial Conditions
+    # 7.7. Simulate the Uncontrolled System (u = 0) for All Initial Conditions
     # ------------------------------
     for idx, ic in enumerate(initial_conditions):
         # Pre-generate noise array for uncontrolled simulation
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     
     
     # ------------------------------
-    # 7.7. Define MPC Parameters
+    # 7.8. Define MPC Parameters
     # ------------------------------
     N = 20                      # Prediction horizon
     Q = np.diag([100, 1])       # State weights: penalize position more than velocity

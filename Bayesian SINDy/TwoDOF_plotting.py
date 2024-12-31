@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import corner
-from TwoDOF_feature_definitions import get_feature_names
+# from TwoDOF_feature_definitions import get_feature_names
 
 # ------------------------------
 # Parameter Diagnostics and Comparison
@@ -46,18 +46,8 @@ def plot_parameter_distributions(model):
 
     Total = 2*(1+M)+2
     """
-    feature_names = get_feature_names()
-    M = len(feature_names)
-    # Construct parameter labels
-    # Equation 1 parameters
-    labels_eq1 = ['theta_0_1'] + [f'c_v1_{feat}' for feat in feature_names]
-    # Equation 2 parameters
-    labels_eq2 = ['theta_0_2'] + [f'c_v2_{feat}' for feat in feature_names]
-    labels_noise = ['sigma_epsilon_1', 'sigma_epsilon_2']
 
-    labels = labels_eq1 + labels_eq2 + labels_noise
-
-    corner.corner(model.samples, labels=labels,
+    corner.corner(model.samples, labels=model.expanded_names,
                   quantiles=[0.16,0.5,0.84], show_titles=True, title_kwargs={"fontsize":12})
     plt.show()
 
@@ -69,13 +59,7 @@ def print_parameter_comparison(true_values, model, feature_names):
 
     We'll align with what we defined in plot_parameter_distributions.
     """
-    # Build parameter labels
-    M = len(feature_names)
-    param_labels = ['theta_0_1'] \
-                   + [f'c_v1_{feat}' for feat in feature_names] \
-                   + ['theta_0_2'] \
-                   + [f'c_v2_{feat}' for feat in feature_names] \
-                   + ['sigma_epsilon_1', 'sigma_epsilon_2']
+
 
     print("\n### Parameter Comparison ###\n")
 
@@ -91,13 +75,13 @@ def print_parameter_comparison(true_values, model, feature_names):
             unc = 100 * std / np.abs(tv)
             return f"{lbl:25}: True={tv:.5f}, Est={median:.5f}±{std:.5f}, Err={perr:.2f}%, Unc={unc:.2f}%"
 
-    if len(true_values) != len(param_labels):
+    if len(true_values) != len(feature_names):
         print("Warning: Number of true values does not match number of parameters.")
-        min_len = min(len(true_values), len(param_labels))
+        min_len = min(len(true_values), len(feature_names))
         true_values = true_values[:min_len]
-        param_labels = param_labels[:min_len]
+        feature_names = feature_names[:min_len]
 
-    for i, lbl in enumerate(param_labels):
+    for i, lbl in enumerate(feature_names):
         tv = true_values[i]
         est = model.samples[:, i]
         print(format_comparison(tv, est, lbl))

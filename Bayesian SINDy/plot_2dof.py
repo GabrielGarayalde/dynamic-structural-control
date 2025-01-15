@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-
+from sindy_2dof import predict_sindy_trajectory
 
 def plot_mpc_results(t, X_uncontrolled, X_mean, X_std, U_mean, U_std):
     """
@@ -48,6 +48,47 @@ def plot_mpc_results(t, X_uncontrolled, X_mean, X_std, U_mean, U_std):
     axs[2].set_title('MPC Control Input with Uncertainty Bounds')
     axs[2].legend()
     axs[2].grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_true_vs_estimated_model(t, X_true, x0, U, fitted_model, title_prefix=""):
+    """
+    Plot the true system trajectory vs. the discovered SINDy model 
+    for the same initial condition.
+    
+    Parameters
+    ----------
+    t : ndarray
+        Time array
+    X_true : ndarray, shape (len(t), 4)
+        True states
+    x0 : ndarray, shape (4,)
+        Initial condition
+    U : ndarray, shape (len(t),)
+        Control input
+    fitted_model : pysindy.SINDy
+        Discovered model to be integrated via Euler
+    title_prefix : str
+        A label prefix for the plot title (e.g. "In-sample" or "Robustness check").
+    """
+    X_est = predict_sindy_trajectory(fitted_model, x0, t, U)
+
+    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+    axs = axs.flatten()
+    state_labels = ['x1', 'v1', 'x2', 'v2']
+
+    for i_state in range(4):
+        axs[i_state].plot(t, X_true[:, i_state], 'k-', label='True', linewidth=2)
+        axs[i_state].plot(t, X_est[:, i_state], 'r--', label='Discovered Model')
+        axs[i_state].set_title(f"{title_prefix} - State: {state_labels[i_state]}")
+        axs[i_state].set_xlabel("Time [s]")
+        axs[i_state].set_ylabel("Value")
+        axs[i_state].grid(True)
+
+        if i_state == 0:
+            axs[i_state].legend()
 
     plt.tight_layout()
     plt.show()

@@ -8,7 +8,7 @@ class BayesianNoiseEstimator:
     Bayesian approach estimating the noise std devs (sigma_epsilon_1, sigma_epsilon_2)
     assuming the deterministic system is already identified by a SINDy model.
     """
-    def __init__(self, det_sindy_model, rows_for_coeffs=(1,3), n_walkers=32):
+    def __init__(self, det_sindy_model, rows_for_coeffs=(1,3), n_walkers=16):
         self.model = det_sindy_model
         self.rows_for_coeffs = rows_for_coeffs
         self.n_walkers = n_walkers

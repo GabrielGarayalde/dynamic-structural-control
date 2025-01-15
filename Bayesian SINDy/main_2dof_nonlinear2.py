@@ -14,7 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Local imports
-from simulate_2dof_linear import simulate_true, compute_true_coeffs
+from simulate_2dof_nonlinear2 import simulate_true, compute_true_coeffs
 
 from sindy_2dof import (
     get_initial_guess_from_pysindy,
@@ -24,10 +24,7 @@ from sindy_2dof import (
 )
 from bayesian_noise_2dof import BayesianNoiseEstimator
 from bayesian_mpc_2dof import run_bayesian_mpc_deterministic_noise
-from plot_2dof import plot_mpc_results, plot_true_vs_estimated_model
-
-
-
+from plot_2dof import plot_mpc_results, plot_true_vs_estimated_model  
 
 
 ###############################################################################
@@ -41,11 +38,12 @@ if __name__ == "__main__":
     m1, m2 = 1.0, 1.0
     k1, k2 = 1.0, 1.0
     c1, c2 = 0.3, 0.3
+    a1 , a2 = 0.2, 0.0 # 2nd order x params
     theta_0_1, theta_0_2 = 0.5, 0.5
-    sigma_epsilon_1, sigma_epsilon_2 = 0.05, 0.05
+    sigma_epsilon_1, sigma_epsilon_2 = 0.0, 0.0
 
     dt = 0.005
-    t = np.arange(0, 15, dt)
+    t = np.arange(0, 20, dt)
     # np.random.seed(42)  # Uncomment if you want reproducible noise
 
     # Control input on second mass
@@ -63,6 +61,7 @@ if __name__ == "__main__":
     # ------------------------------
     X_true, X_dot_true = simulate_true(
         m1, m2, c1, c2, k1, k2, 
+        a1, a2,
         theta_0_1, theta_0_2, 
         x0, t, U, 
         noise_array_1, noise_array_2
@@ -96,15 +95,17 @@ if __name__ == "__main__":
 
     # Build expanded names to compare with "true" coeffs
     expanded_names = build_expanded_feature_names(feat_names)
+    
     true_coeffs = compute_true_coeffs(
         m1, m2, c1, c2, k1, k2, 
         theta_0_1, theta_0_2, 
         sigma_epsilon_1, sigma_epsilon_2,
-        feat_names
+        feat_names,
+        a1, a2,
     )
     # Show pruned comparison table
     df_pruned = compare_coeffs(true_coeffs, initial_guess, expanded_names,
-                                active_feature_indices=None)
+                               active_feature_indices=active_idx)
     print(df_pruned)
 
     # ------------------------------
@@ -112,6 +113,7 @@ if __name__ == "__main__":
     # ------------------------------
     X_true_no_noise, X_dot_true_no_noise = simulate_true(
         m1, m2, c1, c2, k1, k2, 
+        a1, a2,
         theta_0_1, theta_0_2 ,
         x0, t, U, 
         np.zeros(len(t)), np.zeros(len(t))
@@ -134,6 +136,7 @@ if __name__ == "__main__":
 
     X_true_robust_no_noise, X_dot_true_robust_no_noise = simulate_true(
         m1, m2, c1, c2, k1, k2,
+        a1, a2,
         theta_0_1, theta_0_2,
         x0_robust, t, U,
         np.zeros(len(t)), np.zeros(len(t))
@@ -152,60 +155,59 @@ if __name__ == "__main__":
     # ------------------------------
     # G) Bayesian Noise Estimation (Optional)
     # ------------------------------
-    bayes_noise_model = BayesianNoiseEstimator(
-        det_sindy_model=fitted_sindy_model,
-        rows_for_coeffs=(1, 3),
-        n_walkers=20,
-    )
-    bayes_noise_model.fit(X_true, X_dot_true, U=U, t=t, n_steps=200, initial_sigma=(0.0, 0.0))
-    sigma_samples = bayes_noise_model.get_sigma_samples()
-    print("Posterior samples for [sigma1, sigma2]:", sigma_samples.shape)
+    # bayes_noise_model = BayesianNoiseEstimator(
+    #     det_sindy_model=fitted_sindy_model,
+    #     rows_for_coeffs=(1, 3),
+    #     n_walkers=20,
+    # )
+    # bayes_noise_model.fit(X_true, X_dot_true, U=U, t=t, n_steps=200, initial_sigma=(0.0, 0.0))
+    # sigma_samples = bayes_noise_model.get_sigma_samples()
+    # print("Posterior samples for [sigma1, sigma2]:", sigma_samples.shape)
 
-    # Plot the noise posterior
-    plt.figure()
-    plt.hist(sigma_samples[:,0], bins=30, alpha=0.5, label='sigma_epsilon_1')
-    plt.hist(sigma_samples[:,1], bins=30, alpha=0.5, label='sigma_epsilon_2')
-    plt.legend()
-    plt.title("Posterior Distributions for Noise Parameters")
-    plt.show()
+    # # Plot the noise posterior
+    # plt.figure()
+    # plt.hist(sigma_samples[:,0], bins=30, alpha=0.5, label='sigma_epsilon_1')
+    # plt.hist(sigma_samples[:,1], bins=30, alpha=0.5, label='sigma_epsilon_2')
+    # plt.legend()
+    # plt.title("Posterior Distributions for Noise Parameters")
+    # plt.show()
 
     # # ------------------------------
     # # H) Prepare & Run MPC (Optional)
     # # ------------------------------
-    # Uncontrolled system for comparison
-    noise_array_unc_1 = np.random.normal(0, sigma_epsilon_1, size=len(t))
-    noise_array_unc_2 = np.random.normal(0, sigma_epsilon_2, size=len(t))
-    U_no_control = np.zeros(len(t))
+    # # Uncontrolled system for comparison
+    # noise_array_unc_1 = np.random.normal(0, sigma_epsilon_1, size=len(t))
+    # noise_array_unc_2 = np.random.normal(0, sigma_epsilon_2, size=len(t))
+    # U_no_control = np.zeros(len(t))
 
-    X_uncontrolled, X_dot_uncontrolled = simulate_true(
-        m1, m2, c1, c2, k1, k2, 
-        theta_0_1, theta_0_2, 
-        x0, t, U_no_control, 
-        noise_array_unc_1, 
-        noise_array_unc_2
-    )
+    # X_uncontrolled, X_dot_uncontrolled = simulate_true(
+    #     m1, m2, c1, c2, k1, k2, 
+    #     theta_0_1, theta_0_2, 
+    #     x0, t, U_no_control, 
+    #     noise_array_unc_1, 
+    #     noise_array_unc_2
+    # )
 
-    # MPC parameters
-    N = 15
-    Q = np.diag([100, 1, 100, 1])
-    R = 0.1
-    u_max, u_min = 3.0, -3.0
-    x_ref = np.array([0.0, 0.0, 0.0, 0.0])
-    # x_ref = x0_robust
+    # # MPC parameters
+    # N = 15
+    # Q = np.diag([100, 1, 100, 1])
+    # R = 0.1
+    # u_max, u_min = 1.0, -1.0
+    # x_ref = np.array([0.0, 0.0, 0.0, 0.0])
 
-    # Sample from posterior
-    n_mpc_samples = 1
-    idxs = np.random.choice(len(sigma_samples), size=n_mpc_samples, replace=False)
-    sigma_draws = sigma_samples[idxs]
+    # # Sample from posterior
+    # n_mpc_samples = 1
+    # idxs = np.random.choice(len(sigma_samples), size=n_mpc_samples, replace=False)
+    # sigma_draws = sigma_samples[idxs]
 
-    # Run Bayesian MPC
-    X_all, U_all, X_mean, X_std, U_mean, U_std = run_bayesian_mpc_deterministic_noise(
-        pruned_feature_names,
-        pruned_coeff_matrix,
-        fitted_sindy_model, 
-        sigma_draws, 
-        x0, t, Q, R, N, u_min, u_max, x_ref
-    )
+    # # Run Bayesian MPC
+    # X_all, U_all, X_mean, X_std, U_mean, U_std = run_bayesian_mpc_deterministic_noise(
+    #     pruned_feature_names,
+    #     pruned_coeff_matrix,
+    #     fitted_sindy_model, 
+    #     sigma_draws, 
+    #     x0, t, Q, R, N, u_min, u_max, x_ref
+    # )
 
-    # Plot MPC vs. Uncontrolled
-    plot_mpc_results(t, X_uncontrolled, X_mean, X_std, U_mean, U_std)
+    # # Plot MPC vs. Uncontrolled
+    # plot_mpc_results(t, X_uncontrolled, X_mean, X_std, U_mean, U_std)

@@ -72,6 +72,3 @@ Throughout the examples, we show how to:
 
 - **Bayesian Inference** / **MCMC**:
   - [emcee Documentation](https://emcee.readthedocs.io/en/stable/)
-
-- **MPC**:
-  - Basic references: [Richard M. Murray, “Optimization-Based Control,” Caltech coursework](https://www.cds.caltech.edu/~murray/wiki/ME115b).
